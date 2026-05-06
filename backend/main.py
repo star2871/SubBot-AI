@@ -10,13 +10,13 @@ from auth import oauth, get_current_user, create_user_session, remove_user_sessi
 from database import create_user, authenticate_user, get_user_by_email
 import os
 import secrets
-
+from llm.graph import graph
 app = FastAPI()
 
 # CORS 미들웨어 추가
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,7 +47,10 @@ class LoginRequest(BaseModel):
 
 @app.get("/favicon.ico")
 def favicon():
-    return Response(content=open("../subbot-ui/vite-project/public/favicon.svg", "rb").read(), media_type="image/svg+xml")
+    try:
+        return Response(content=open("../subbot-ui/vite-project/public/vite.svg", "rb").read(), media_type="image/svg+xml")
+    except FileNotFoundError:
+        return Response(content="", media_type="image/x-icon")
 
 # OAuth 로그인 라우트
 @app.get("/login")
@@ -170,12 +173,20 @@ async def chat(req: ChatRequest, request: Request):
         ticket = create_ticket(req.message)
         return JSONResponse(content={"answer": ticket, "ticket": True}, media_type="application/json; charset=utf-8")
 
+@app.post("/api/chat")
+async def chat_api(req: ChatRequest):
+    result = graph.invoke({
+        "message": req.message
+    })
+
+    return {
+        "answer": result.get("answer"),
+        "category": result.get("category"),
+        "confidence": result.get("confidence")
+    }
+
 from fastapi.middleware.cors import CORSMiddleware
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # React 주소
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)

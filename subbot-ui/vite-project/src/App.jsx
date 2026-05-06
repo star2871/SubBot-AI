@@ -89,18 +89,22 @@ function App() {
     setMessages(prev => [...prev, { text: userMessage, isUser: true }])
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/chat', {
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include',
         body: JSON.stringify({ message: userMessage }),
       })
 
       const data = await response.json()
       
-      setMessages(prev => [...prev, { text: data.answer, isUser: false }])
+      setMessages(prev => [...prev, { 
+        text: data.answer, 
+        isUser: false,
+        category: data.category,
+        confidence: data.confidence
+      }])
     } catch (error) {
       setMessages(prev => [...prev, { text: '오류가 발생했습니다. 다시 시도해주세요.', isUser: false }])
     } finally {
