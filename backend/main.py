@@ -132,9 +132,10 @@ async def login_email(req: LoginRequest, request: Request):
             request.session['user_id'] = user['email']
             request.session['user_name'] = user['name']
             request.session['login_type'] = 'email'
+            request.session['remember_login'] = True  # 로그인 유지 플래그
             
             return JSONResponse(
-                content={"message": "로그인 성공", "user": user}, 
+                content={"message": "로그인 성공", "user": user, "remember_login": True}, 
                 media_type="application/json; charset=utf-8"
             )
         else:
@@ -175,14 +176,103 @@ async def chat(req: ChatRequest, request: Request):
 
 @app.post("/api/chat")
 async def chat_api(req: ChatRequest):
-    result = graph.invoke({
-        "message": req.message
-    })
+    try:
+        # LangGraph 실행
+        result = graph.invoke({"message": req.message})
+        
+        # 대화 내용 저장
+        from conversation_db import conv_db
+        conv_db.save_conversation(
+            user_message=req.message,
+            bot_response=result.get("answer", ""),
+            category=result.get("category", "unknown"),
+            confidence=result.get("confidence", 0.5),
+            session_id=req.session_id if hasattr(req, 'session_id') else None,
+            product_info=result.get("product_info")
+        )
+        
+        response_data = {
+            "answer": result.get("answer", "죄송합니다. 응답을 생성할 수 없습니다."),
+            "category": result.get("category", "unknown"),
+            "confidence": result.get("confidence", 0.5)
+        }
+        
+        # 캐시에서 온 답변인지 표시
+        if result.get("from_cache"):
+            response_data["from_cache"] = True
+        
+        return response_data
+        
+    except Exception as e:
+        # 에러도 저장
+        try:
+            from conversation_db import conv_db
+            conv_db.save_conversation(
+                user_message=req.message,
+                bot_response=f"오류 발생: {str(e)}",
+                category="error",
+                confidence=0.1
+            )
+        except:
+            pass  # 저장 실패 시 무시
+        
+        return {
+            "answer": f"오류가 발생했습니다: {str(e)}",
+            "category": "error",
+            "confidence": 0.1
+        }
 
+@app.post("/api/search")
+async def search_api(req: ChatRequest):
+    import requests
+    
+    query = req.message
+    search_results = []
+    
+    # 다양한 검색 엔진 시도
+    search_engines = [
+        {
+            "name": "Google",
+            "url": f"https://www.google.com/search?q={query}"
+        },
+        {
+            "name": "Naver", 
+            "url": f"https://search.naver.com/search.naver?query={query}"
+        },
+        {
+            "name": "Daum",
+            "url": f"https://search.daum.net/search?w=tot&q={query}"
+        }
+    ]
+    
+    for engine in search_engines:
+        try:
+            response = requests.get(engine["url"], timeout=10)
+            if response.status_code == 200:
+                search_results.append({
+                    "engine": engine["name"],
+                    "url": engine["url"],
+                    "status": "success",
+                    "message": f"{engine['name']} 검색 결과를 찾았습니다."
+                })
+            else:
+                search_results.append({
+                    "engine": engine["name"],
+                    "status": "error",
+                    "message": f"{engine['name']} 검색 실패"
+                })
+        except Exception as e:
+            search_results.append({
+                "engine": engine["name"],
+                "status": "error", 
+                "message": f"{engine['name']} 검색 오류: {str(e)[:50]}"
+            })
+    
     return {
-        "answer": result.get("answer"),
-        "category": result.get("category"),
-        "confidence": result.get("confidence")
+        "answer": f"'{query}'에 대한 검색 결과입니다.",
+        "search_results": search_results,
+        "category": "search",
+        "confidence": 0.8
     }
 
 from fastapi.middleware.cors import CORSMiddleware
