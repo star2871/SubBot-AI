@@ -1,30 +1,19 @@
 import sqlite3
 import pandas as pd
+import os
 
 class ProductDatabase:
     def __init__(self):
-        # 여러 경로에서 shop.db 찾기
-        db_paths = [
-            "shop.db",
-            "../shop.db", 
-            "../../shop.db",
-            "data/shop.db"
-        ]
+        # 절대 경로 사용
+        db_path = os.path.join(os.path.dirname(__file__), "..", "data", "shop.db")
         
-        for path in db_paths:
-            try:
-                self.conn = sqlite3.connect(path)
-                print(f"✅ 데이터베이스 연결 성공: {path}")
-                self._init_database()
-                return
-            except sqlite3.OperationalError:
-                continue
-            except Exception as e:
-                print(f"❌ 데이터베이스 연결 오류: {e}")
-                continue
-        
-        # 모든 경로에서 실패하면 에러
-        raise Exception("shop.db 파일을 찾을 수 없거나 연결할 수 없습니다.")
+        try:
+            self.conn = sqlite3.connect(db_path)
+            print(f"✅ 데이터베이스 연결 성공: {db_path}")
+            self._init_database()
+        except Exception as e:
+            print(f"❌ 데이터베이스 연결 오류: {e}")
+            raise Exception("shop.db 파일을 찾을 수 없거나 연결할 수 없습니다.")
     
     def _init_database(self):
         """데이터베이스 초기화"""
@@ -52,12 +41,12 @@ class ProductDatabase:
         self.conn.commit()
     
     def search_products(self, keyword):
-        """상품명으로 검색"""
+        """상품명으로 검색 (딕셔너리 리스트 반환)"""
         cursor = self.conn.cursor()
         
         # 상품명, 소재, 구성에서 키워드 검색
         query = """
-            SELECT 상품명, 중량, 판매가, 소재, 규격, 구성
+            SELECT 상품명, 중량, [ 판매가 ] as 판매가, 소재, 규격, 구성
             FROM products 
             WHERE 상품명 LIKE ? OR 소재 LIKE ? OR 구성 LIKE ?
             ORDER BY 
@@ -67,7 +56,7 @@ class ProductDatabase:
                     WHEN 구성 LIKE ? THEN 3
                     ELSE 4
                 END,
-                판매가 ASC
+                [ 판매가 ] ASC
             LIMIT 10
         """
         
@@ -78,21 +67,21 @@ class ProductDatabase:
         results = cursor.fetchall()
         
         if not results:
-            return None
+            return []
         
-        # 결과 포맷팅
+        # 결과 포맷팅 (딕셔너리 리스트)
         formatted_results = []
         for row in results:
             상품명, 중량, 판매가, 소재, 규격, 구성 = row
             
-            formatted_result = f"""
-📦 **{상품명}**
-💰 가격: {판매가:,}원
-⚖️ 중량: {중량}g
-🔧 소재: {소재}
-📏 규격: {규격}
-📦 구성: {구성[:100]}{'...' if len(구성) > 100 else ''}
-            """.strip()
+            formatted_result = {
+                "상품명": 상품명,
+                "중량": 중량,
+                "판매가": 판매가,
+                "소재": 소재,
+                "규격": 규격,
+                "구성": 구성
+            }
             
             formatted_results.append(formatted_result)
         
@@ -103,7 +92,7 @@ class ProductDatabase:
         cursor = self.conn.cursor()
         
         query = """
-            SELECT 상품명, 중량, 판매가, 소재, 규격, 구성, 상품정보고시
+            SELECT 상품명, 중량, [ 판매가 ] as 판매가, 소재, 규격, 구성, 상품정보고시
             FROM products 
             WHERE 상품명 = ?
             LIMIT 1
