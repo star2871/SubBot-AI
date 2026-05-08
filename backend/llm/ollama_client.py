@@ -21,24 +21,26 @@ def wait_for_ollama():
         time.sleep(2)
     return False
 
-def ask_llm(prompt: str) -> str:
+def ask_llm(prompt: str, max_tokens: int = 500, model: str = None, num_ctx: int = 2048) -> str:
     # 서비스 준비 확인
     if not wait_for_ollama():
         return "Ollama 서비스를 시작할 수 없습니다."
-    
+
+    target_model = model or MODEL  # 외부에서 지정한 모델 우선
+
     try:
-        # 먼저 현재 모델로 시도
+        # 먼저 지정된 모델로 시도
         res = requests.post(
             OLLAMA_URL,
             json={
-                "model": MODEL,
+                "model": target_model,
                 "prompt": prompt,
                 "stream": False,
                 "options": {
                     "temperature": 0.1,  # 응답 일관성 향상
                     "top_p": 0.9,
-                    "max_tokens": 500,  # 최대 토큰 수 제한
-                    "num_ctx": 2048   # 컨텍스트 길이 제한
+                    "max_tokens": max_tokens,  # 작업별 토큰 수 조절
+                    "num_ctx": num_ctx   # 컨텍스트 길이 제한
                 }
             }
         )
@@ -53,8 +55,8 @@ def ask_llm(prompt: str) -> str:
             if response:
                 return response.strip()
         
-        # 현재 모델이 실패하면 다른 모델로 자동 전환
-        print(f"🔄 {MODEL} 모델 실패 - 다른 모델로 전환 시도...")
+        # 지정 모델이 실패하면 fallback
+        print(f"🔄 {target_model} 모델 실패 - 다른 모델로 전환 시도...")
         fallback_model = auto_switch_model()
         
         # 다른 모델로 재시도
@@ -68,7 +70,7 @@ def ask_llm(prompt: str) -> str:
                     "temperature": 0.1,
                     "top_p": 0.9,
                     "max_tokens": 500,
-                    "num_ctx": 2048
+                    "num_ctx": num_ctx
                 }
             }
         )

@@ -533,7 +533,7 @@ function App() {
             ) : (
               messages.map((msg, index) => (
                 <div key={index} className={`message ${msg.isUser ? 'user' : 'bot'}`}>
-                  <div className="message-content">{msg.text}</div>
+                  <div className={`message-content ${!msg.isUser && (String(msg.text).includes('📦') || String(msg.text).includes('🔍')) ? 'product-message' : ''}`}>{msg.text}</div>
                   {!msg.isUser && msg.responseTime !== undefined && (
                     <div className="message-meta">
                       응답 시간: {formatResponseTime(msg.responseTime)}
