@@ -12,6 +12,7 @@ import os
 import secrets
 import time
 from llm.graph import graph
+from llm.product_rag import row_to_dict, format_products_fast, hybrid_search_products, simple_normalize
 
 # 상품 검색 질문 유형 분석
 def analyze_query_type(question: str):
@@ -229,8 +230,9 @@ async def chat(req: ChatRequest, request: Request):
             # 1. 먼저 정확한 상품명 검색 (공백 정규화 적용)
             normalized_query = re.sub(r'\s+', ' ', query_text.strip())
             normalized_clean = re.sub(r'\s+', ' ', clean_query.strip())
+            normalized_simple = simple_normalize(query_text)
             
-            for search_text in [normalized_query, query_text, normalized_clean, clean_query]:
+            for search_text in [normalized_query, query_text, normalized_clean, clean_query, normalized_simple]:
                 if search_text and search_text.strip():
                     cursor.execute("""
                         SELECT 상품명, 중량, [ 판매가 ] as 판매가, 소재, 규격, 구성
@@ -244,62 +246,38 @@ async def chat(req: ChatRequest, request: Request):
                         break
             
             if exact_result:
-                is_price, is_material, is_weight = analyze_query_type(req.message)
-                answer = format_product_response(exact_result, is_price, is_material, is_weight)
+                answer = format_products_fast(req.message, [row_to_dict(exact_result)])
                 conn.close()
                 return JSONResponse(content={"answer": answer, "ticket": False}, media_type="application/json; charset=utf-8")
             
             # 2. 정확히 일치하지 않으면 키워드 AND 검색 (모든 키워드 포함)
-            # 입력을 단어로 분리해서 모든 단어가 포함된 상품만 검색
-            search_keywords = []
-            for k in normalized_clean.split():
-                k = k.strip()
-                # 의미있는 키워드만: 2글자 이상, 숫자로만 된 것 제외
-                if len(k) >= 2 and not k.isdigit():
-                    search_keywords.append(k)
-            
-            if search_keywords:
-                # 모든 키워드가 상품명에 포함된 상품 검색
-                conditions = " AND ".join(["상품명 LIKE ?"] * len(search_keywords))
-                query = f"""
-                    SELECT 상품명, 중량, [ 판매가 ] as 판매가, 소재, 규격, 구성
-                    FROM products 
-                    WHERE {conditions}
-                    AND [ 판매가 ] IS NOT NULL 
-                    AND CAST([ 판매가 ] AS INTEGER) > 0
-                    ORDER BY CAST([ 판매가 ] AS INTEGER) ASC
-                    LIMIT 5
-                """
-                params = [f"%{k}%" for k in search_keywords]
-                cursor.execute(query, params)
-                and_results = cursor.fetchall()
+            # 먼저 기존 정규화 키워드로 시도, 실패하면 simple_normalize 키워드로도 시도
+            for keyword_source in [normalized_clean, normalized_simple]:
+                search_keywords = []
+                for k in keyword_source.split():
+                    k = k.strip()
+                    if len(k) >= 2 and not k.isdigit():
+                        search_keywords.append(k)
                 
-                if and_results:
-                    is_price, is_material, is_weight = analyze_query_type(req.message)
-                    if len(and_results) == 1:
-                        # 결과가 1개면 상세 정보
-                        answer = format_product_response(and_results[0], is_price, is_material, is_weight)
-                    else:
-                        # 결과가 여러 개면 목록
-                        answer = f"🔍 '{query_text}' 검색 결과 ({len(and_results)}개):\n\n"
-                        for i, row in enumerate(and_results, 1):
-                            상품명, 중량, 판매가, 소재, 규격, 구성 = row
-                            answer += f"📦 {i}. {상품명}\n"
-                            if is_price:
-                                answer += f"   💵 가격: {판매가:,}원\n"
-                            elif is_material:
-                                answer += f"   🏷️  소재: {소재}\n"
-                            elif is_weight:
-                                answer += f"   ⚖️  중량: {중량}g\n"
-                            else:
-                                answer += f"   💵 가격: {판매가:,}원\n"
-                                answer += f"   ⚖️  중량: {중량}g\n"
-                                answer += f"   🏷️  소재: {소재}\n"
-                            answer += "\n"
-                        answer += f"📞 고객센터: 1577-4321"
+                if search_keywords:
+                    conditions = " AND ".join(["상품명 LIKE ?"] * len(search_keywords))
+                    query = f"""
+                        SELECT 상품명, 중량, [ 판매가 ] as 판매가, 소재, 규격, 구성
+                        FROM products 
+                        WHERE {conditions}
+                        AND [ 판매가 ] IS NOT NULL 
+                        AND CAST([ 판매가 ] AS INTEGER) > 0
+                        ORDER BY CAST([ 판매가 ] AS INTEGER) ASC
+                        LIMIT 5
+                    """
+                    params = [f"%{k}%" for k in search_keywords]
+                    cursor.execute(query, params)
+                    and_results = cursor.fetchall()
                     
-                    conn.close()
-                    return JSONResponse(content={"answer": answer, "ticket": False}, media_type="application/json; charset=utf-8")
+                    if and_results:
+                        answer = format_products_fast(req.message, [row_to_dict(row) for row in and_results])
+                        conn.close()
+                        return JSONResponse(content={"answer": answer, "ticket": False}, media_type="application/json; charset=utf-8")
             
             # 3. AND 검색도 안 되면 개별 키워드 OR 검색
             or_keywords = [k for k in normalized_clean.split() if len(k.strip()) >= 3 and not k.strip().isdigit()]
@@ -322,29 +300,18 @@ async def chat(req: ChatRequest, request: Request):
                 or_results = cursor.fetchall()
                 
                 if or_results:
-                    if len(or_results) == 1:
-                        상품명, 중량, 판매가, 소재, 규격, 구성 = or_results[0]
-                        answer = f"📦 상품 정보:\n\n"
-                        answer += f"상품명: {상품명}\n"
-                        answer += f"💰 가격: {판매가:,}원\n"
-                        answer += f"⚖️  중량: {중량}g\n"
-                        answer += f"🏷️  소재: {소재}\n\n"
-                        answer += f"📞 고객센터: 1577-4321"
-                    else:
-                        answer = f"🔍 '{query_text}' 관련 상품 ({len(or_results)}개):\n\n"
-                        for i, row in enumerate(or_results, 1):
-                            상품명, 중량, 판매가, 소재, 규격, 구성 = row
-                            answer += f"📦 {i}. {상품명}\n"
-                            answer += f"   💵 가격: {판매가:,}원\n"
-                            answer += f"   ⚖️  중량: {중량}g\n"
-                            answer += f"   🏷️  소재: {소재}\n\n"
-                        answer += f"📞 고객센터: 1577-4321"
-                    
+                    answer = format_products_llm(req.message, [row_to_dict(row) for row in or_results])
                     conn.close()
                     return JSONResponse(content={"answer": answer, "ticket": False}, media_type="application/json; charset=utf-8")
             
-            conn.close()
+            # 하이브리드 fallback: LLM 정규화 + 선택
+            hybrid_results = hybrid_search_products(cursor, req.message, normalized_clean)
+            if hybrid_results:
+                answer = format_products_llm(req.message, hybrid_results)
+                conn.close()
+                return JSONResponse(content={"answer": answer, "ticket": False}, media_type="application/json; charset=utf-8")
             
+            conn.close()
         except Exception as e:
             print(f"상품 검색 오류: {e}")
 
@@ -389,10 +356,11 @@ async def chat_api(req: ChatRequest):
                 
                 normalized_query = re.sub(r'\s+', ' ', query_text.strip())
                 normalized_clean = re.sub(r'\s+', ' ', clean_query.strip())
+                normalized_simple = simple_normalize(query_text)
                 
                 # 1. 정확한 상품명 검색
                 exact_result = None
-                for search_text in [normalized_query, query_text, normalized_clean, clean_query]:
+                for search_text in [normalized_query, query_text, normalized_clean, clean_query, normalized_simple]:
                     if search_text and search_text.strip():
                         cursor.execute("""
                             SELECT 상품명, 중량, [ 판매가 ] as 판매가, 소재, 규격, 구성
@@ -406,13 +374,7 @@ async def chat_api(req: ChatRequest):
                             break
                 
                 if exact_result:
-                    상품명, 중량, 판매가, 소재, 규격, 구성 = exact_result
-                    answer = f"📦 상품 정보:\n\n"
-                    answer += f"상품명: {상품명}\n"
-                    answer += f"💰 가격: {판매가:,}원\n"
-                    answer += f"⚖️  중량: {중량}g\n"
-                    answer += f"🏷️  소재: {소재}\n\n"
-                    answer += f"📞 고객센터: 1577-4321"
+                    answer = format_products_fast(req.message, [row_to_dict(exact_result)])
                     conn.close()
                     return {
                         "answer": answer,
@@ -420,53 +382,37 @@ async def chat_api(req: ChatRequest):
                         "confidence": 0.95
                     }
                 
-                # 2. 키워드 AND 검색
-                search_keywords = []
-                for k in normalized_clean.split():
-                    k = k.strip()
-                    if len(k) >= 2 and not k.isdigit():
-                        search_keywords.append(k)
-                
-                if search_keywords:
-                    conditions = " AND ".join(["상품명 LIKE ?"] * len(search_keywords))
-                    query = f"""
-                        SELECT 상품명, 중량, [ 판매가 ] as 판매가, 소재, 규격, 구성
-                        FROM products 
-                        WHERE {conditions}
-                        AND [ 판매가 ] IS NOT NULL 
-                        AND CAST([ 판매가 ] AS INTEGER) > 0
-                        ORDER BY CAST([ 판매가 ] AS INTEGER) ASC
-                        LIMIT 5
-                    """
-                    params = [f"%{k}%" for k in search_keywords]
-                    cursor.execute(query, params)
-                    and_results = cursor.fetchall()
+                # 2. 키워드 AND 검색 (기존 + simple_normalize 키워드 모두 시도)
+                for keyword_source in [normalized_clean, normalized_simple]:
+                    search_keywords = []
+                    for k in keyword_source.split():
+                        k = k.strip()
+                        if len(k) >= 2 and not k.isdigit():
+                            search_keywords.append(k)
                     
-                    if and_results:
-                        if len(and_results) == 1:
-                            상품명, 중량, 판매가, 소재, 규격, 구성 = and_results[0]
-                            answer = f"📦 상품 정보:\n\n"
-                            answer += f"상품명: {상품명}\n"
-                            answer += f"💰 가격: {판매가:,}원\n"
-                            answer += f"⚖️  중량: {중량}g\n"
-                            answer += f"🏷️  소재: {소재}\n\n"
-                            answer += f"📞 고객센터: 1577-4321"
-                        else:
-                            answer = f"🔍 '{query_text}' 검색 결과 ({len(and_results)}개):\n\n"
-                            for i, row in enumerate(and_results, 1):
-                                상품명, 중량, 판매가, 소재, 규격, 구성 = row
-                                answer += f"📦 {i}. {상품명}\n"
-                                answer += f"   💵 가격: {판매가:,}원\n"
-                                answer += f"   ⚖️  중량: {중량}g\n"
-                                answer += f"   🏷️  소재: {소재}\n\n"
-                            answer += f"📞 고객센터: 1577-4321"
+                    if search_keywords:
+                        conditions = " AND ".join(["상품명 LIKE ?"] * len(search_keywords))
+                        query = f"""
+                            SELECT 상품명, 중량, [ 판매가 ] as 판매가, 소재, 규격, 구성
+                            FROM products 
+                            WHERE {conditions}
+                            AND [ 판매가 ] IS NOT NULL 
+                            AND CAST([ 판매가 ] AS INTEGER) > 0
+                            ORDER BY CAST([ 판매가 ] AS INTEGER) ASC
+                            LIMIT 5
+                        """
+                        params = [f"%{k}%" for k in search_keywords]
+                        cursor.execute(query, params)
+                        and_results = cursor.fetchall()
                         
-                        conn.close()
-                        return {
-                            "answer": answer,
-                            "category": "product",
-                            "confidence": 0.9
-                        }
+                        if and_results:
+                            answer = format_products_fast(req.message, [row_to_dict(row) for row in and_results])
+                            conn.close()
+                            return {
+                                "answer": answer,
+                                "category": "product",
+                                "confidence": 0.9
+                            }
                 
                 # 3. OR 검색
                 or_keywords = [k for k in normalized_clean.split() if len(k.strip()) >= 3 and not k.strip().isdigit()]
@@ -489,30 +435,24 @@ async def chat_api(req: ChatRequest):
                     or_results = cursor.fetchall()
                     
                     if or_results:
-                        if len(or_results) == 1:
-                            상품명, 중량, 판매가, 소재, 규격, 구성 = or_results[0]
-                            answer = f"📦 상품 정보:\n\n"
-                            answer += f"상품명: {상품명}\n"
-                            answer += f"💰 가격: {판매가:,}원\n"
-                            answer += f"⚖️  중량: {중량}g\n"
-                            answer += f"🏷️  소재: {소재}\n\n"
-                            answer += f"📞 고객센터: 1577-4321"
-                        else:
-                            answer = f"🔍 '{query_text}' 관련 상품 ({len(or_results)}개):\n\n"
-                            for i, row in enumerate(or_results, 1):
-                                상품명, 중량, 판매가, 소재, 규격, 구성 = row
-                                answer += f"📦 {i}. {상품명}\n"
-                                answer += f"   💵 가격: {판매가:,}원\n"
-                                answer += f"   ⚖️  중량: {중량}g\n"
-                                answer += f"   🏷️  소재: {소재}\n\n"
-                            answer += f"📞 고객센터: 1577-4321"
-                        
+                        answer = format_products_fast(req.message, [row_to_dict(row) for row in or_results])
                         conn.close()
                         return {
                             "answer": answer,
                             "category": "product",
                             "confidence": 0.85
                         }
+                
+                # 하이브리드 fallback: LLM 정규화 + 선택
+                hybrid_results = hybrid_search_products(cursor, req.message, normalized_clean)
+                if hybrid_results:
+                    answer = format_products_fast(req.message, hybrid_results)
+                    conn.close()
+                    return {
+                        "answer": answer,
+                        "category": "product",
+                        "confidence": 0.8
+                    }
                 
                 conn.close()
             except Exception as e:
