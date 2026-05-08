@@ -300,6 +300,13 @@ body {
   border: 1px solid #e1e5e9;
 }
 
+.message-meta {
+  font-size: 11px;
+  color: #888;
+  margin-top: 4px;
+  padding-left: 4px;
+}
+
 /* 타이핑 인디케이터 */
 .typing-indicator {
   color: #999;

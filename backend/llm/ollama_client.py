@@ -2,7 +2,7 @@ import requests
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 # 여러 모델 중 하나를 선택 (phi3:latest가 우선)
-MODEL = "phi3:latest"  # phi3 모델로 복원
+MODEL = "qwen2.5:3b"  # qwen2.5 모델로 변경
 OLLAMA_PATH = r"C:\Users\user\AppData\Local\Programs\Ollama\ollama.exe"
 
 # Ollama 서비스가 준비될 때까지 대기하는 함수
