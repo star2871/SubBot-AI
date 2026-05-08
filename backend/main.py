@@ -10,6 +10,7 @@ from auth import oauth, get_current_user, create_user_session, remove_user_sessi
 from database import create_user, authenticate_user, get_user_by_email
 import os
 import secrets
+import time
 from llm.graph import graph
 
 # 상품 검색 질문 유형 분석
@@ -358,6 +359,7 @@ async def chat(req: ChatRequest, request: Request):
 
 @app.post("/api/chat")
 async def chat_api(req: ChatRequest):
+    start_time = time.perf_counter()
     try:
         # 상품 키워드 확인 - 직접 DB 검색으로 우회
         product_keywords = ['상품', '골드', '메달', '은', '금', '카드형', '토끼', '용', '뱀', '조폐', '한국조폐공사', '가격', '얼마', '판매가', '비용', '금액', '바']
@@ -533,7 +535,8 @@ async def chat_api(req: ChatRequest):
         response_data = {
             "answer": result.get("answer", "죄송합니다. 응답을 생성할 수 없습니다."),
             "category": result.get("category", "unknown"),
-            "confidence": result.get("confidence", 0.5)
+            "confidence": result.get("confidence", 0.5),
+            "response_time_ms": round((time.perf_counter() - start_time) * 1000)
         }
         
         # 캐시에서 온 답변인지 표시
@@ -558,7 +561,8 @@ async def chat_api(req: ChatRequest):
         return {
             "answer": f"오류가 발생했습니다: {str(e)}",
             "category": "error",
-            "confidence": 0.1
+            "confidence": 0.1,
+            "response_time_ms": round((time.perf_counter() - start_time) * 1000)
         }
 
 @app.post("/api/search")

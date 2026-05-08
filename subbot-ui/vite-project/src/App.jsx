@@ -79,6 +79,15 @@ function App() {
     }
   }
 
+  const formatResponseTime = (ms) => {
+    if (ms === undefined || ms === null) return ''
+    if (ms < 1000) return `${ms}ms`
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}초`
+    const minutes = Math.floor(ms / 60000)
+    const seconds = ((ms % 60000) / 1000).toFixed(0)
+    return `${minutes}분 ${seconds}초`
+  }
+
   const handleInputChange = (e) => {
     setFormData({
       ...formData,
@@ -166,6 +175,7 @@ function App() {
     const userMessage = inputMessage
     setInputMessage('')
     setIsLoading(true)
+    const startTime = performance.now()
 
     setMessages(prev => [...prev, { text: userMessage, isUser: true }])
 
@@ -186,7 +196,8 @@ function App() {
       })
 
       const data = await response.json()
-      
+      const elapsedMs = Math.round(performance.now() - startTime)
+
       // 웹 검색 트리거 확인
       if (data.trigger_web_search || (hasProblem && data.answer.includes('웹에서 검색'))) {
         // 웹 검색 API 호출
@@ -230,11 +241,12 @@ function App() {
           </div>
         )
         
-        setMessages(prev => [...prev, { 
-          text: combinedMessage, 
+        setMessages(prev => [...prev, {
+          text: combinedMessage,
           isUser: false,
           category: 'combined_search',
-          confidence: Math.max(data.confidence, searchData.confidence || 0.8)
+          confidence: Math.max(data.confidence, searchData.confidence || 0.8),
+          responseTime: elapsedMs
         }])
       } else if (isSearch) {
         // 일반 검색 요청
@@ -277,23 +289,26 @@ function App() {
           </div>
         )
         
-        setMessages(prev => [...prev, { 
-          text: searchMessage, 
+        setMessages(prev => [...prev, {
+          text: searchMessage,
           isUser: false,
           category: searchData.category,
-          confidence: searchData.confidence
+          confidence: searchData.confidence,
+          responseTime: elapsedMs
         }])
       } else {
         // 일반 채팅 응답
-        setMessages(prev => [...prev, { 
-          text: data.answer, 
+        setMessages(prev => [...prev, {
+          text: data.answer,
           isUser: false,
           category: data.category,
-          confidence: data.confidence
+          confidence: data.confidence,
+          responseTime: elapsedMs
         }])
       }
     } catch (error) {
-      setMessages(prev => [...prev, { text: '오류가 발생했습니다. 다시 시도해주세요.', isUser: false }])
+      const elapsedMs = Math.round(performance.now() - startTime)
+      setMessages(prev => [...prev, { text: '오류가 발생했습니다. 다시 시도해주세요.', isUser: false, responseTime: elapsedMs }])
     } finally {
       setIsLoading(false)
     }
@@ -519,6 +534,11 @@ function App() {
               messages.map((msg, index) => (
                 <div key={index} className={`message ${msg.isUser ? 'user' : 'bot'}`}>
                   <div className="message-content">{msg.text}</div>
+                  {!msg.isUser && msg.responseTime !== undefined && (
+                    <div className="message-meta">
+                      응답 시간: {formatResponseTime(msg.responseTime)}
+                    </div>
+                  )}
                 </div>
               ))
             )}
