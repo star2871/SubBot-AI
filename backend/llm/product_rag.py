@@ -131,6 +131,26 @@ def simple_normalize(question: str) -> str:
     return ' '.join(keywords)
 
 
+def filter_by_material_intent(question: str, products: list) -> list:
+    """
+    사용자 질문의 소재 의도와 반대되는 상품을 제외.
+    예: '골드' 요청 시 실버(Ag) 제외, '실버' 요청 시 골드(Au) 제외.
+    """
+    if not products:
+        return products
+
+    q = question.lower()
+    is_gold = any(w in q for w in ['골드', '금메달', 'gold'])
+    is_silver = any(w in q for w in ['실버', '은메달', 'silver'])
+
+    if is_gold and not is_silver:
+        return [p for p in products if 'ag' not in str(p.get('소재', '')).lower()]
+    elif is_silver and not is_gold:
+        return [p for p in products if 'au' not in str(p.get('소재', '')).lower()]
+
+    return products
+
+
 def hybrid_search_products(cursor, question: str, normalized_clean: str) -> list:
     """
     하이브리드 상품 검색 (A + B)
@@ -175,7 +195,7 @@ def hybrid_search_products(cursor, question: str, normalized_clean: str) -> list
         cursor.execute(and_query, params)
         and_results = cursor.fetchall()
         if and_results:
-            return [row_to_dict(row) for row in and_results]
+            return filter_by_material_intent(question, [row_to_dict(row) for row in and_results])
 
     # 1-B: 정규화 OR 검색 (LIMIT 높게 + Python에서 키워드 매칭 점수 정렬)
     or_keywords = [k for k in llm_normalized.split() if len(k.strip()) >= 2 and not k.strip().isdigit()]
@@ -204,7 +224,7 @@ def hybrid_search_products(cursor, question: str, normalized_clean: str) -> list
                 return sum(1 for k in or_keywords if k in name)
 
             candidates.sort(key=score_product, reverse=True)
-            return candidates[:5]
+            return filter_by_material_intent(question, candidates[:5])
 
     # 2단계: 전체 상품 목록에서 Python 점수 기반 선택 (최후의 수단)
     cursor.execute("""
@@ -223,6 +243,6 @@ def hybrid_search_products(cursor, question: str, normalized_clean: str) -> list
             name = p.get('상품명', '')
             return sum(1 for k in question_keywords if k in name)
         all_products.sort(key=score_all, reverse=True)
-        return [all_products[0]]
+        return filter_by_material_intent(question, [all_products[0]])
 
     return []

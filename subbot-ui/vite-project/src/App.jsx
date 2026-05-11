@@ -215,24 +215,18 @@ function App() {
         const combinedMessage = (
           <div>
             <p><strong>{data.answer}</strong></p>
-            <div style={{marginTop: '15px', padding: '10px', backgroundColor: '#f8f9fa', borderRadius: '5px'}}>
+            <div className="search-results-box">
               <h4>🌐 웹 검색 결과:</h4>
               {searchData.search_results && searchData.search_results.map((result, index) => (
-                <div key={index} style={{ 
-                  border: '1px solid #ddd', 
-                  padding: '8px', 
-                  margin: '5px 0', 
-                  borderRadius: '5px',
-                  backgroundColor: result.status === 'success' ? '#f0f8ff' : '#fff0f0'
-                }}>
-                  <strong>{result.engine}:</strong>
-                  <div style={{fontSize: '12px', color: '#666', marginTop: '3px'}}>
+                <div key={index} className={`search-result-item ${result.status}`}>
+                  <strong className="search-engine-name">{result.engine}:</strong>
+                  <div className="search-url-text">
                     {result.status === 'success' ? (
-                      <a href={result.url} target="_blank" rel="noopener noreferrer" style={{color: '#007bff', textDecoration: 'none'}}>
+                      <a href={result.url} target="_blank" rel="noopener noreferrer" className="search-result-link">
                         🔗 {result.url}
                       </a>
                     ) : (
-                      <span style={{color: '#dc3545'}}>{result.message}</span>
+                      <span className="search-error-text">{result.message}</span>
                     )}
                   </div>
                 </div>
@@ -263,24 +257,18 @@ function App() {
         const searchMessage = (
           <div>
             <p><strong>{searchData.answer}</strong></p>
-            <div style={{marginTop: '10px'}}>
+            <div className="search-results-box" style={{marginTop: '10px'}}>
               <h4>🔍 검색 결과:</h4>
               {searchData.search_results.map((result, index) => (
-                <div key={index} style={{ 
-                  border: '1px solid #ddd', 
-                  padding: '8px', 
-                  margin: '5px 0', 
-                  borderRadius: '5px',
-                  backgroundColor: result.status === 'success' ? '#f0f8ff' : '#fff0f0'
-                }}>
-                  <strong>{result.engine}:</strong>
-                  <div style={{fontSize: '12px', color: '#666'}}>
+                <div key={index} className={`search-result-item ${result.status}`}>
+                  <strong className="search-engine-name">{result.engine}:</strong>
+                  <div className="search-url-text">
                     {result.status === 'success' ? (
-                      <a href={result.url} target="_blank" rel="noopener noreferrer" style={{color: '#007bff', textDecoration: 'none'}}>
+                      <a href={result.url} target="_blank" rel="noopener noreferrer" className="search-result-link">
                         🔗 {result.url}
                       </a>
                     ) : (
-                      <span style={{color: '#dc3545'}}>{result.message}</span>
+                      <span className="search-error-text">{result.message}</span>
                     )}
                   </div>
                 </div>

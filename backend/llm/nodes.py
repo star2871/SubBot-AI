@@ -1,4 +1,5 @@
 from llm.ollama_client import ask_llm
+from llm.product_rag import row_to_dict, filter_by_material_intent
 
 # 1. Router
 def router_node(state):
@@ -125,26 +126,27 @@ def faq_node(state):
                 and_results = cursor.fetchall()
                 
                 if and_results:
-                    if len(and_results) == 1:
-                        상품명, 중량, 판매가, 소재, 규격, 구성 = and_results[0]
-                        answer = f"📦 상품 정보:\n\n"
-                        answer += f"상품명: {상품명}\n"
-                        answer += f"💰 가격: {판매가:,}원\n"
-                        answer += f"⚖️  중량: {중량}g\n"
-                        answer += f"🏷️  소재: {소재}\n\n"
-                        answer += f"📞 고객센터: 1577-4321"
-                    else:
-                        answer = f"🔍 '{question}' 검색 결과 ({len(and_results)}개):\n\n"
-                        for i, row in enumerate(and_results, 1):
-                            상품명, 중량, 판매가, 소재, 규격, 구성 = row
-                            answer += f"📦 {i}. {상품명}\n"
-                            answer += f"   💵 가격: {판매가:,}원\n"
-                            answer += f"   ⚖️  중량: {중량}g\n"
-                            answer += f"   🏷️  소재: {소재}\n\n"
-                        answer += f"📞 고객센터: 1577-4321"
-                    
-                    conn.close()
-                    return {**state, "answer": answer, "category": "product", "confidence": 0.9}
+                    and_dicts = filter_by_material_intent(question, [row_to_dict(row) for row in and_results])
+                    if and_dicts:
+                        if len(and_dicts) == 1:
+                            p = and_dicts[0]
+                            answer = f"📦 상품 정보:\n\n"
+                            answer += f"상품명: {p['상품명']}\n"
+                            answer += f"💰 가격: {p['판매가']:,}원\n"
+                            answer += f"⚖️  중량: {p['중량']}g\n"
+                            answer += f"🏷️  소재: {p['소재']}\n\n"
+                            answer += f"📞 고객센터: 1577-4321"
+                        else:
+                            answer = f"🔍 '{question}' 검색 결과 ({len(and_dicts)}개):\n\n"
+                            for i, p in enumerate(and_dicts, 1):
+                                answer += f"📦 {i}. {p['상품명']}\n"
+                                answer += f"   💵 가격: {p['판매가']:,}원\n"
+                                answer += f"   ⚖️  중량: {p['중량']}g\n"
+                                answer += f"   🏷️  소재: {p['소재']}\n\n"
+                            answer += f"📞 고객센터: 1577-4321"
+                        
+                        conn.close()
+                        return {**state, "answer": answer, "category": "product", "confidence": 0.9}
             
             # 3. OR 검색 (fallback)
             or_keywords = [k for k in normalized_clean.split() if len(k.strip()) >= 3 and not k.strip().isdigit()]
@@ -167,26 +169,27 @@ def faq_node(state):
                 or_results = cursor.fetchall()
                 
                 if or_results:
-                    if len(or_results) == 1:
-                        상품명, 중량, 판매가, 소재, 규격, 구성 = or_results[0]
-                        answer = f"📦 상품 정보:\n\n"
-                        answer += f"상품명: {상품명}\n"
-                        answer += f"💰 가격: {판매가:,}원\n"
-                        answer += f"⚖️  중량: {중량}g\n"
-                        answer += f"🏷️  소재: {소재}\n\n"
-                        answer += f"📞 고객센터: 1577-4321"
-                    else:
-                        answer = f"🔍 '{question}' 관련 상품 ({len(or_results)}개):\n\n"
-                        for i, row in enumerate(or_results, 1):
-                            상품명, 중량, 판매가, 소재, 규격, 구성 = row
-                            answer += f"📦 {i}. {상품명}\n"
-                            answer += f"   💵 가격: {판매가:,}원\n"
-                            answer += f"   ⚖️  중량: {중량}g\n"
-                            answer += f"   🏷️  소재: {소재}\n\n"
-                        answer += f"📞 고객센터: 1577-4321"
-                    
-                    conn.close()
-                    return {**state, "answer": answer, "category": "product", "confidence": 0.85}
+                    or_dicts = filter_by_material_intent(question, [row_to_dict(row) for row in or_results])
+                    if or_dicts:
+                        if len(or_dicts) == 1:
+                            p = or_dicts[0]
+                            answer = f"📦 상품 정보:\n\n"
+                            answer += f"상품명: {p['상품명']}\n"
+                            answer += f"💰 가격: {p['판매가']:,}원\n"
+                            answer += f"⚖️  중량: {p['중량']}g\n"
+                            answer += f"🏷️  소재: {p['소재']}\n\n"
+                            answer += f"📞 고객센터: 1577-4321"
+                        else:
+                            answer = f"🔍 '{question}' 관련 상품 ({len(or_dicts)}개):\n\n"
+                            for i, p in enumerate(or_dicts, 1):
+                                answer += f"📦 {i}. {p['상품명']}\n"
+                                answer += f"   💵 가격: {p['판매가']:,}원\n"
+                                answer += f"   ⚖️  중량: {p['중량']}g\n"
+                                answer += f"   🏷️  소재: {p['소재']}\n\n"
+                            answer += f"📞 고객센터: 1577-4321"
+                        
+                        conn.close()
+                        return {**state, "answer": answer, "category": "product", "confidence": 0.85}
             
             conn.close()
         except Exception as e:
