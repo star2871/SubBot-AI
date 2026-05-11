@@ -12,7 +12,7 @@ import os
 import secrets
 import time
 from llm.graph import graph
-from llm.product_rag import row_to_dict, format_products_fast, hybrid_search_products, simple_normalize
+from llm.product_rag import row_to_dict, format_products_fast, hybrid_search_products, simple_normalize, filter_by_material_intent
 
 # 상품 검색 질문 유형 분석
 def analyze_query_type(question: str):
@@ -275,9 +275,11 @@ async def chat(req: ChatRequest, request: Request):
                     and_results = cursor.fetchall()
                     
                     if and_results:
-                        answer = format_products_fast(req.message, [row_to_dict(row) for row in and_results])
-                        conn.close()
-                        return JSONResponse(content={"answer": answer, "ticket": False}, media_type="application/json; charset=utf-8")
+                        and_products = filter_by_material_intent(req.message, [row_to_dict(row) for row in and_results])
+                        if and_products:
+                            answer = format_products_fast(req.message, and_products)
+                            conn.close()
+                            return JSONResponse(content={"answer": answer, "ticket": False}, media_type="application/json; charset=utf-8")
             
             # 3. AND 검색도 안 되면 개별 키워드 OR 검색
             or_keywords = [k for k in normalized_clean.split() if len(k.strip()) >= 3 and not k.strip().isdigit()]
@@ -300,14 +302,16 @@ async def chat(req: ChatRequest, request: Request):
                 or_results = cursor.fetchall()
                 
                 if or_results:
-                    answer = format_products_llm(req.message, [row_to_dict(row) for row in or_results])
-                    conn.close()
-                    return JSONResponse(content={"answer": answer, "ticket": False}, media_type="application/json; charset=utf-8")
+                    or_products = filter_by_material_intent(req.message, [row_to_dict(row) for row in or_results])
+                    if or_products:
+                        answer = format_products_fast(req.message, or_products)
+                        conn.close()
+                        return JSONResponse(content={"answer": answer, "ticket": False}, media_type="application/json; charset=utf-8")
             
             # 하이브리드 fallback: LLM 정규화 + 선택
             hybrid_results = hybrid_search_products(cursor, req.message, normalized_clean)
             if hybrid_results:
-                answer = format_products_llm(req.message, hybrid_results)
+                answer = format_products_fast(req.message, hybrid_results)
                 conn.close()
                 return JSONResponse(content={"answer": answer, "ticket": False}, media_type="application/json; charset=utf-8")
             
@@ -406,13 +410,15 @@ async def chat_api(req: ChatRequest):
                         and_results = cursor.fetchall()
                         
                         if and_results:
-                            answer = format_products_fast(req.message, [row_to_dict(row) for row in and_results])
-                            conn.close()
-                            return {
-                                "answer": answer,
-                                "category": "product",
-                                "confidence": 0.9
-                            }
+                            and_products = filter_by_material_intent(req.message, [row_to_dict(row) for row in and_results])
+                            if and_products:
+                                answer = format_products_fast(req.message, and_products)
+                                conn.close()
+                                return {
+                                    "answer": answer,
+                                    "category": "product",
+                                    "confidence": 0.9
+                                }
                 
                 # 3. OR 검색
                 or_keywords = [k for k in normalized_clean.split() if len(k.strip()) >= 3 and not k.strip().isdigit()]
@@ -435,13 +441,15 @@ async def chat_api(req: ChatRequest):
                     or_results = cursor.fetchall()
                     
                     if or_results:
-                        answer = format_products_fast(req.message, [row_to_dict(row) for row in or_results])
-                        conn.close()
-                        return {
-                            "answer": answer,
-                            "category": "product",
-                            "confidence": 0.85
-                        }
+                        or_products = filter_by_material_intent(req.message, [row_to_dict(row) for row in or_results])
+                        if or_products:
+                            answer = format_products_fast(req.message, or_products)
+                            conn.close()
+                            return {
+                                "answer": answer,
+                                "category": "product",
+                                "confidence": 0.85
+                            }
                 
                 # 하이브리드 fallback: LLM 정규화 + 선택
                 hybrid_results = hybrid_search_products(cursor, req.message, normalized_clean)
